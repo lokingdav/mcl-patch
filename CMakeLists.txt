@@ -155,7 +155,7 @@ if(MCL_USE_LLVM)
 endif()
 
 # --- AVX512 MSM routines on any x86_64 (including Android x86_64) ---
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
     set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
 
     add_custom_command(OUTPUT ${MSM_OBJ}
