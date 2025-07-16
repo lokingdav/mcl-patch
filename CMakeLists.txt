@@ -114,9 +114,8 @@ else()
     set(ANDROID_SYSROOT_FLAG "")
 endif()
 
-# --- Compile .ll bitcode files with proper target/sysroot whenever LLVM is enabled ---
+# --- Compile .ll bitcode files when LLVM is enabled ---
 if(MCL_USE_LLVM)
-    # bint${BIT}.ll → bint${BIT}.o
     set(BINT_OBJ "${CMAKE_CURRENT_BINARY_DIR}/bint${BIT}.o")
     target_compile_definitions(mcl    PUBLIC MCL_BINT_ASM_X64=0)
     target_compile_definitions(mcl_st PUBLIC MCL_BINT_ASM_X64=0)
@@ -136,7 +135,6 @@ if(MCL_USE_LLVM)
     add_dependencies(mcl_st gen_bint.o)
     target_sources(mcl_st PRIVATE ${BINT_OBJ})
 
-    # base${BIT}.ll → base${BIT}.o
     set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
     add_custom_command(OUTPUT ${BASE_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
@@ -154,30 +152,27 @@ if(MCL_USE_LLVM)
     target_sources(mcl_st PRIVATE ${BASE_OBJ})
 endif()
 
-# --- AVX512 MSM routines on any x86_64 (including Android x86_64) ---
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
-    set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
-
-    add_custom_command(OUTPUT ${MSM_OBJ}
-        COMMAND ${CMAKE_CXX_COMPILER}
-                ${ANDROID_TARGET_FLAG}
-                ${ANDROID_SYSROOT_FLAG}
-                -c -o ${MSM_OBJ}
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
-                ${MCL_COMPILE_OPTIONS}
-                -I ${CMAKE_CURRENT_SOURCE_DIR}/include
-                -mavx512f -mavx512ifma
-                -std=c++11 -fno-rtti
-                -DCYBOZU_DONT_USE_STRING
-                -DCYBOZU_DONT_USE_EXCEPTION
-                -DNDEBUG
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-    add_custom_target(msm_avx.o DEPENDS ${MSM_OBJ})
-    target_link_libraries(mcl     PUBLIC ${MSM_OBJ})
-    add_dependencies(mcl     msm_avx.o)
-    target_link_libraries(mcl_st PUBLIC ${MSM_OBJ})
-    add_dependencies(mcl_st msm_avx.o)
-endif()
+# --- Always compile and link the AVX512 MSM routines ---
+set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
+add_custom_command(OUTPUT ${MSM_OBJ}
+    COMMAND ${CMAKE_CXX_COMPILER}
+            ${ANDROID_TARGET_FLAG}
+            ${ANDROID_SYSROOT_FLAG}
+            -c -o ${MSM_OBJ}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
+            ${MCL_COMPILE_OPTIONS}
+            -I ${CMAKE_CURRENT_SOURCE_DIR}/include
+            -mavx512f -mavx512ifma
+            -std=c++11 -fno-rtti
+            -DCYBOZU_DONT_USE_STRING
+            -DCYBOZU_DONT_USE_EXCEPTION
+            -DNDEBUG
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+add_custom_target(msm_avx.o DEPENDS ${MSM_OBJ})
+target_link_libraries(mcl     PUBLIC ${MSM_OBJ})
+add_dependencies(mcl     msm_avx.o)
+target_link_libraries(mcl_st PUBLIC ${MSM_OBJ})
+add_dependencies(mcl_st msm_avx.o)
 
 # --- Optional tests & samples ---
 if(MCL_BUILD_TESTING)
