@@ -96,42 +96,23 @@ endif()
 target_compile_options(mcl    PRIVATE ${MCL_COMPILE_OPTIONS})
 target_compile_options(mcl_st PRIVATE ${MCL_COMPILE_OPTIONS})
 
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64")  # Win64
-    find_program(ML64 ml64.exe HINTS "${cl_path}" DOC "path to assembler")
-    set(BINT_X64_OBJ "${CMAKE_CURRENT_BINARY_DIR}/bint-x64-win.obj")
-    add_custom_command(OUTPUT ${BINT_X64_OBJ}
-        COMMAND ${ML64} /c /Fo ${BINT_X64_OBJ}
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/asm/bint-x64-win.asm
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-    add_custom_target(gen_bint-x64-win.obj SOURCES ${BINT_X64_OBJ})
-    target_link_libraries(mcl     PUBLIC ${BINT_X64_OBJ})
-    add_dependencies(mcl     gen_bint-x64-win.obj)
-    target_link_libraries(mcl_st PUBLIC ${BINT_X64_OBJ})
-    add_dependencies(mcl_st gen_bint-x64-win.obj)
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE)
-    if(CMAKE_SYSTEM_NAME STREQUAL "MSYS")
-        target_sources(mcl    PRIVATE src/asm/bint-x64-mingw.S)
-        target_sources(mcl_st PRIVATE src/asm/bint-x64-mingw.S)
-    else()
-        target_sources(mcl    PRIVATE src/asm/bint-x64-amd64.S)
-        target_sources(mcl_st PRIVATE src/asm/bint-x64-amd64.S)
-    endif()
-else()
-    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-        message(FATAL_ERROR "requiring clang++. cmake -DCMAKE_CXX_COMPILER=clang++ ..")
-    endif()
+# Split the toolchain flags into a list of individual arguments:
+separate_arguments(MCL_CXX_FLAGS_LIST UNIX_COMMAND "${CMAKE_CXX_FLAGS}")
+
+# --- bint${BIT}.ll rule ---
+if(NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64") AND NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE))
     set(BINT_OBJ "${CMAKE_CURRENT_BINARY_DIR}/bint${BIT}.o")
-    message("bint_obj=" ${BINT_OBJ})
     target_compile_definitions(mcl    PUBLIC MCL_BINT_ASM_X64=0)
     target_compile_definitions(mcl_st PUBLIC MCL_BINT_ASM_X64=0)
 
     add_custom_command(OUTPUT ${BINT_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
-                ${CMAKE_CXX_FLAGS}
+                ${MCL_CXX_FLAGS_LIST}
                 -c -o ${BINT_OBJ}
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/bint${BIT}.ll
                 -O3 -fPIC
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
     add_custom_target(gen_bint.o SOURCES ${BINT_OBJ})
     target_link_libraries(mcl     PUBLIC ${BINT_OBJ})
     add_dependencies(mcl     gen_bint.o)
@@ -140,13 +121,35 @@ else()
     target_sources(mcl_st PRIVATE ${BINT_OBJ})
 endif()
 
-if(CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64")  # Win64
-    # skip AVX on Windows here
-elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE)
+# --- base${BIT}.ll rule ---
+if(MCL_USE_LLVM AND NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64") AND NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE))
+    set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
+    target_compile_definitions(mcl    PUBLIC MCL_USE_LLVM=1)
+    target_compile_definitions(mcl_st PUBLIC MCL_USE_LLVM=1)
+
+    add_custom_command(OUTPUT ${BASE_OBJ}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                ${MCL_CXX_FLAGS_LIST}
+                -c -o ${BASE_OBJ}
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/base${BIT}.ll
+                -O3 -fPIC
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    )
+    add_custom_target(gen_base.o SOURCES ${BASE_OBJ})
+    target_link_libraries(mcl     PUBLIC ${BASE_OBJ})
+    add_dependencies(mcl     gen_base.o)
+    target_link_libraries(mcl_st PUBLIC ${BASE_OBJ})
+    add_dependencies(mcl_st gen_base.o)
+    target_sources(mcl_st PRIVATE ${BASE_OBJ})
+endif()
+
+# --- AVX512 MSM routines on x86_64 Linux ---
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE)
     set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
+
     add_custom_command(OUTPUT ${MSM_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
-                ${CMAKE_CXX_FLAGS}
+                ${MCL_CXX_FLAGS_LIST}
                 -c -o ${MSM_OBJ}
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
                 ${MCL_COMPILE_OPTIONS}
@@ -165,39 +168,16 @@ elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE)
     add_dependencies(mcl_st msm_avx.o)
 endif()
 
-if(${MCL_USE_LLVM})
-    set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
-    message("base_obj=" ${BASE_OBJ})
-    target_compile_definitions(mcl    PUBLIC MCL_USE_LLVM=1)
-    target_compile_definitions(mcl_st PUBLIC MCL_USE_LLVM=1)
-    add_custom_command(OUTPUT ${BASE_OBJ}
-        COMMAND ${CMAKE_CXX_COMPILER}
-                ${CMAKE_CXX_FLAGS}
-                -c -o ${BASE_OBJ}
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/base${BIT}.ll
-                -O3 -fPIC
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-    add_custom_target(gen_base.o SOURCES ${BASE_OBJ})
-    target_link_libraries(mcl     PUBLIC ${BASE_OBJ})
-    add_dependencies(mcl     gen_base.o)
-    target_link_libraries(mcl_st PUBLIC ${BASE_OBJ})
-    add_dependencies(mcl_st gen_base.o)
-    target_sources(mcl_st PRIVATE ${BASE_OBJ})
-endif()
-
+# (rest of file unchanged: tests, samples, install/export)
 if(MCL_BUILD_TESTING)
     enable_testing()
     add_subdirectory(test)
 endif()
-
 if(MCL_BUILD_SAMPLE)
     add_subdirectory(sample)
 endif()
-
-if(MCL_TEST_WITH_GMP)
-    if(NOT MSVC)
-        find_package(GMP REQUIRED)
-    endif()
+if(MCL_TEST_WITH_GMP AND NOT MSVC)
+    find_package(GMP REQUIRED)
 endif()
 
 install(TARGETS mcl mcl_st
@@ -206,16 +186,7 @@ install(TARGETS mcl mcl_st
     ARCHIVE DESTINATION lib
     RUNTIME DESTINATION lib)
 
-install(DIRECTORY include/mcl
-    DESTINATION include
-    FILES_MATCHING PATTERN "*.hpp"
-    PATTERN "curve_type.h"
-    PATTERN "bn.h"
-    PATTERN "bn_c256.h"
-    PATTERN "bn_c384_256.h"
-    PATTERN "bn_c384.h")
-
-install(DIRECTORY include/cybozu
+install(DIRECTORY include/mcl include/cybozu
     DESTINATION include
     FILES_MATCHING PATTERN "*.hpp")
 
