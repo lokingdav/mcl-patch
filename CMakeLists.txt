@@ -154,12 +154,14 @@ if(MCL_USE_LLVM)
     target_sources(mcl_st PRIVATE ${BASE_OBJ})
 endif()
 
-# --- AVX512 MSM routines on native Linux only ---
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+# --- AVX512 MSM routines on any x86_64 (including Android x86_64) ---
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
     set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
 
     add_custom_command(OUTPUT ${MSM_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
+                ${ANDROID_TARGET_FLAG}
+                ${ANDROID_SYSROOT_FLAG}
                 -c -o ${MSM_OBJ}
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
                 ${MCL_COMPILE_OPTIONS}
