@@ -21,18 +21,18 @@ set(MCL_CFLAGS_STANDALONE
     -DCYBOZU_DONT_USE_EXCEPTION
     CACHE STRING "add user defined CFLAGS")
 
-option(MCL_USE_GMP "Use GMP for the main library" OFF)
+option(MCL_USE_GMP   "Use GMP for the main library" OFF)
 if(MSVC)
     set(MCL_TEST_WITH_GMP_DEFAULT OFF)
 else()
     set(MCL_TEST_WITH_GMP_DEFAULT ON)
 endif()
 option(MCL_TEST_WITH_GMP "(Windows) download MPIR libraries from cybozulib_ext" ${MCL_TEST_WITH_GMP_DEFAULT})
-option(MCL_USE_LLVM "use base64.ll with -DCMAKE_CXX_COMPILER=clang++" ON)
-option(MCL_BUILD_SAMPLE "Build mcl samples" OFF)
+option(MCL_USE_LLVM  "use base64.ll with -DCMAKE_CXX_COMPILER=clang++" ON)
+option(MCL_BUILD_SAMPLE  "Build mcl samples" OFF)
 option(MCL_BUILD_TESTING "Build mcl tests" OFF)
 
-# --- Derive bit-size suffix ---
+# --- Bit-size suffix ---
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(BIT "64")
 else()
@@ -48,11 +48,9 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 # --- Core libraries ---
 add_library(mcl SHARED src/fp.cpp)
 add_library(mcl::mcl ALIAS mcl)
-
 target_include_directories(mcl PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>)
-
 set_target_properties(mcl PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     OUTPUT_NAME mcl
@@ -61,11 +59,9 @@ set_target_properties(mcl PROPERTIES
 
 add_library(mcl_st STATIC src/fp.cpp)
 add_library(mcl::mcl_st ALIAS mcl_st)
-
 target_include_directories(mcl_st PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>)
-
 set_target_properties(mcl_st PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     OUTPUT_NAME mcl)
@@ -105,7 +101,7 @@ endif()
 target_compile_options(mcl    PRIVATE ${MCL_COMPILE_OPTIONS})
 target_compile_options(mcl_st PRIVATE ${MCL_COMPILE_OPTIONS})
 
-# --- Android cross-compile flags (when using NDK toolchain) ---
+# --- Android cross-compile flags ---
 if(DEFINED CMAKE_CXX_COMPILER_TARGET AND DEFINED CMAKE_SYSROOT)
     set(ANDROID_TARGET_FLAG "--target=${CMAKE_CXX_COMPILER_TARGET}")
     set(ANDROID_SYSROOT_FLAG "--sysroot=${CMAKE_SYSROOT}")
@@ -114,12 +110,12 @@ else()
     set(ANDROID_SYSROOT_FLAG "")
 endif()
 
-# --- Compile .ll bitcode files when LLVM is enabled ---
+# --- Bitcode backends (.ll → .o) ---
 if(MCL_USE_LLVM)
+    # Compile bint${BIT}.ll
     set(BINT_OBJ "${CMAKE_CURRENT_BINARY_DIR}/bint${BIT}.o")
     target_compile_definitions(mcl    PUBLIC MCL_BINT_ASM_X64=0)
     target_compile_definitions(mcl_st PUBLIC MCL_BINT_ASM_X64=0)
-
     add_custom_command(OUTPUT ${BINT_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
                 ${ANDROID_TARGET_FLAG}
@@ -133,8 +129,8 @@ if(MCL_USE_LLVM)
     add_dependencies(mcl     gen_bint.o)
     target_link_libraries(mcl_st PUBLIC ${BINT_OBJ})
     add_dependencies(mcl_st gen_bint.o)
-    target_sources(mcl_st PRIVATE ${BINT_OBJ})
 
+    # Compile base${BIT}.ll
     set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
     add_custom_command(OUTPUT ${BASE_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
@@ -149,30 +145,29 @@ if(MCL_USE_LLVM)
     add_dependencies(mcl     gen_base.o)
     target_link_libraries(mcl_st PUBLIC ${BASE_OBJ})
     add_dependencies(mcl_st gen_base.o)
-    target_sources(mcl_st PRIVATE ${BASE_OBJ})
 endif()
 
-# --- Always compile and link the AVX512 MSM routines ---
-set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
-add_custom_command(OUTPUT ${MSM_OBJ}
-    COMMAND ${CMAKE_CXX_COMPILER}
-            ${ANDROID_TARGET_FLAG}
-            ${ANDROID_SYSROOT_FLAG}
-            -c -o ${MSM_OBJ}
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
-            ${MCL_COMPILE_OPTIONS}
-            -I ${CMAKE_CURRENT_SOURCE_DIR}/include
-            -mavx512f -mavx512ifma
-            -std=c++11 -fno-rtti
-            -DCYBOZU_DONT_USE_STRING
-            -DCYBOZU_DONT_USE_EXCEPTION
-            -DNDEBUG
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-add_custom_target(msm_avx.o DEPENDS ${MSM_OBJ})
-target_link_libraries(mcl     PUBLIC ${MSM_OBJ})
-add_dependencies(mcl     msm_avx.o)
-target_link_libraries(mcl_st PUBLIC ${MSM_OBJ})
-add_dependencies(mcl_st msm_avx.o)
+# --- AVX512 MSM routines (native Linux x86_64 only) ---
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
+    set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
+    add_custom_command(OUTPUT ${MSM_OBJ}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                -c -o ${MSM_OBJ}
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
+                ${MCL_COMPILE_OPTIONS}
+                -I ${CMAKE_CURRENT_SOURCE_DIR}/include
+                -mavx512f -mavx512ifma
+                -std=c++11 -fno-rtti
+                -DCYBOZU_DONT_USE_STRING
+                -DCYBOZU_DONT_USE_EXCEPTION
+                -DNDEBUG
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    add_custom_target(msm_avx.o DEPENDS ${MSM_OBJ})
+    target_link_libraries(mcl     PUBLIC ${MSM_OBJ})
+    add_dependencies(mcl     msm_avx.o)
+    target_link_libraries(mcl_st PUBLIC ${MSM_OBJ})
+    add_dependencies(mcl_st msm_avx.o)
+endif()
 
 # --- Optional tests & samples ---
 if(MCL_BUILD_TESTING)
