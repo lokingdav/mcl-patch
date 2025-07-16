@@ -110,7 +110,7 @@ target_compile_options(mcl_st PRIVATE ${MCL_COMPILE_OPTIONS})
 # - CMAKE_CXX_COMPILER_TARGET   e.g. aarch64-none-linux-android24
 # - CMAKE_SYSROOT               path to sysroot
 if(DEFINED CMAKE_CXX_COMPILER_TARGET AND DEFINED CMAKE_SYSROOT)
-    set(ANDROID_TARGET_FLAG "-target=${CMAKE_CXX_COMPILER_TARGET}")
+    set(ANDROID_TARGET_FLAG "--target=${CMAKE_CXX_COMPILER_TARGET}")
     set(ANDROID_SYSROOT_FLAG "--sysroot=${CMAKE_SYSROOT}")
 else()
     set(ANDROID_TARGET_FLAG "")
