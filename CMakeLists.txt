@@ -165,7 +165,7 @@ target_link_libraries(mcl_st PUBLIC ${MSM_OBJ})
 add_dependencies(mcl_st msm_avx.o)
 
 # --- Generic MSM fallback (initMsm, mulVec, mulEach, etc.) ---
-add_library(msm_fallback OBJECT src/msm_avx.cpp)
+add_library(msm_fallback OBJECT src/msm.cpp)
 target_link_libraries(mcl     PUBLIC $<TARGET_OBJECTS:msm_fallback>)
 target_link_libraries(mcl_st PUBLIC $<TARGET_OBJECTS:msm_fallback>)
 
