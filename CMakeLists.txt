@@ -8,6 +8,7 @@ if(NOT DEFINED CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release")
 endif()
 
+# --- Configuration options ---
 set(MCL_FP_BIT 384 CACHE STRING "max bit size for Fp")
 set(MCL_FR_BIT 256 CACHE STRING "max bit size for Fr")
 
@@ -31,22 +32,27 @@ option(MCL_USE_LLVM "use base64.ll with -DCMAKE_CXX_COMPILER=clang++" ON)
 option(MCL_BUILD_SAMPLE "Build mcl samples" OFF)
 option(MCL_BUILD_TESTING "Build mcl tests" OFF)
 
+# --- Derive bit-size suffix ---
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(BIT "64")
 else()
     set(BIT "32")
 endif()
 
+# --- Output directories ---
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# --- Core libraries ---
 add_library(mcl SHARED src/fp.cpp)
 add_library(mcl::mcl ALIAS mcl)
+
 target_include_directories(mcl PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>)
+
 set_target_properties(mcl PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     OUTPUT_NAME mcl
@@ -55,13 +61,16 @@ set_target_properties(mcl PROPERTIES
 
 add_library(mcl_st STATIC src/fp.cpp)
 add_library(mcl::mcl_st ALIAS mcl_st)
+
 target_include_directories(mcl_st PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:$<INSTALL_PREFIX>/include>)
+
 set_target_properties(mcl_st PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     OUTPUT_NAME mcl)
 
+# --- Compile definitions & options ---
 target_compile_definitions(mcl    PUBLIC MCL_FP_BIT=${MCL_FP_BIT} MCL_FR_BIT=${MCL_FR_BIT})
 target_compile_definitions(mcl_st PUBLIC MCL_FP_BIT=${MCL_FP_BIT} MCL_FR_BIT=${MCL_FR_BIT})
 
@@ -96,21 +105,32 @@ endif()
 target_compile_options(mcl    PRIVATE ${MCL_COMPILE_OPTIONS})
 target_compile_options(mcl_st PRIVATE ${MCL_COMPILE_OPTIONS})
 
-# Turn the single-string flags into a list for custom commands
-string(REPLACE " " ";" MCL_CXX_FLAGS_LIST "${CMAKE_CXX_FLAGS}")
+# --- Android cross-compile flags (when using NDK toolchain) ---
+# These variables are set by CMake's Android toolchain file:
+# - CMAKE_CXX_COMPILER_TARGET   e.g. aarch64-none-linux-android24
+# - CMAKE_SYSROOT               path to sysroot
+if(DEFINED CMAKE_CXX_COMPILER_TARGET AND DEFINED CMAKE_SYSROOT)
+    set(ANDROID_TARGET_FLAG "-target=${CMAKE_CXX_COMPILER_TARGET}")
+    set(ANDROID_SYSROOT_FLAG "--sysroot=${CMAKE_SYSROOT}")
+else()
+    set(ANDROID_TARGET_FLAG "")
+    set(ANDROID_SYSROOT_FLAG "")
+endif()
 
-# Compile the bitcode for non-x86_64/AMD64 targets
+# --- Compile .ll bitcode files with proper target/sysroot ---
 if(NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64") AND NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE))
+    # bint${BIT}.ll → bint${BIT}.o
     set(BINT_OBJ "${CMAKE_CURRENT_BINARY_DIR}/bint${BIT}.o")
     target_compile_definitions(mcl    PUBLIC MCL_BINT_ASM_X64=0)
     target_compile_definitions(mcl_st PUBLIC MCL_BINT_ASM_X64=0)
 
     add_custom_command(OUTPUT ${BINT_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
-                ${MCL_CXX_FLAGS_LIST}
+                ${ANDROID_TARGET_FLAG}
+                ${ANDROID_SYSROOT_FLAG}
+                -fPIC
                 -c -o ${BINT_OBJ}
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/bint${BIT}.ll
-                -O3 -fPIC
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
     add_custom_target(gen_bint.o SOURCES ${BINT_OBJ})
     target_link_libraries(mcl     PUBLIC ${BINT_OBJ})
@@ -118,36 +138,36 @@ if(NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64") AND NOT (CMAKE_SYSTEM_PROCESSOR
     target_link_libraries(mcl_st PUBLIC ${BINT_OBJ})
     add_dependencies(mcl_st gen_bint.o)
     target_sources(mcl_st PRIVATE ${BINT_OBJ})
+
+    # base${BIT}.ll → base${BIT}.o
+    if(MCL_USE_LLVM)
+        set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
+        target_compile_definitions(mcl    PUBLIC MCL_USE_LLVM=1)
+        target_compile_definitions(mcl_st PUBLIC MCL_USE_LLVM=1)
+
+        add_custom_command(OUTPUT ${BASE_OBJ}
+            COMMAND ${CMAKE_CXX_COMPILER}
+                    ${ANDROID_TARGET_FLAG}
+                    ${ANDROID_SYSROOT_FLAG}
+                    -fPIC
+                    -c -o ${BASE_OBJ}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/src/base${BIT}.ll
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+        add_custom_target(gen_base.o SOURCES ${BASE_OBJ})
+        target_link_libraries(mcl     PUBLIC ${BASE_OBJ})
+        add_dependencies(mcl     gen_base.o)
+        target_link_libraries(mcl_st PUBLIC ${BASE_OBJ})
+        add_dependencies(mcl_st gen_base.o)
+        target_sources(mcl_st PRIVATE ${BASE_OBJ})
+    endif()
 endif()
 
-# Compile the base bitcode if LLVM is enabled
-if(MCL_USE_LLVM AND NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64") AND NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE))
-    set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
-    target_compile_definitions(mcl    PUBLIC MCL_USE_LLVM=1)
-    target_compile_definitions(mcl_st PUBLIC MCL_USE_LLVM=1)
-
-    add_custom_command(OUTPUT ${BASE_OBJ}
-        COMMAND ${CMAKE_CXX_COMPILER}
-                ${MCL_CXX_FLAGS_LIST}
-                -c -o ${BASE_OBJ}
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/base${BIT}.ll
-                -O3 -fPIC
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-    add_custom_target(gen_base.o SOURCES ${BASE_OBJ})
-    target_link_libraries(mcl     PUBLIC ${BASE_OBJ})
-    add_dependencies(mcl     gen_base.o)
-    target_link_libraries(mcl_st PUBLIC ${BASE_OBJ})
-    add_dependencies(mcl_st gen_base.o)
-    target_sources(mcl_st PRIVATE ${BASE_OBJ})
-endif()
-
-# AVX512 MSM routines for x86_64 Linux
+# --- AVX512 MSM routines on x86_64 Linux ---
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE)
     set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
 
     add_custom_command(OUTPUT ${MSM_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
-                ${MCL_CXX_FLAGS_LIST}
                 -c -o ${MSM_OBJ}
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
                 ${MCL_COMPILE_OPTIONS}
@@ -165,19 +185,19 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE)
     add_dependencies(mcl_st msm_avx.o)
 endif()
 
+# --- Optional tests & samples ---
 if(MCL_BUILD_TESTING)
     enable_testing()
     add_subdirectory(test)
 endif()
-
 if(MCL_BUILD_SAMPLE)
     add_subdirectory(sample)
 endif()
-
 if(MCL_TEST_WITH_GMP AND NOT MSVC)
     find_package(GMP REQUIRED)
 endif()
 
+# --- Install/Export rules ---
 install(TARGETS mcl mcl_st
     EXPORT mclTargets
     LIBRARY DESTINATION lib
