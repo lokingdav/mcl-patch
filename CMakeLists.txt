@@ -106,9 +106,6 @@ target_compile_options(mcl    PRIVATE ${MCL_COMPILE_OPTIONS})
 target_compile_options(mcl_st PRIVATE ${MCL_COMPILE_OPTIONS})
 
 # --- Android cross-compile flags (when using NDK toolchain) ---
-# These variables are set by CMake's Android toolchain file:
-# - CMAKE_CXX_COMPILER_TARGET   e.g. aarch64-none-linux-android24
-# - CMAKE_SYSROOT               path to sysroot
 if(DEFINED CMAKE_CXX_COMPILER_TARGET AND DEFINED CMAKE_SYSROOT)
     set(ANDROID_TARGET_FLAG "--target=${CMAKE_CXX_COMPILER_TARGET}")
     set(ANDROID_SYSROOT_FLAG "--sysroot=${CMAKE_SYSROOT}")
@@ -117,8 +114,8 @@ else()
     set(ANDROID_SYSROOT_FLAG "")
 endif()
 
-# --- Compile .ll bitcode files with proper target/sysroot ---
-if(NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64") AND NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" AND NOT APPLE))
+# --- Compile .ll bitcode files with proper target/sysroot whenever LLVM is enabled ---
+if(MCL_USE_LLVM)
     # bint${BIT}.ll → bint${BIT}.o
     set(BINT_OBJ "${CMAKE_CURRENT_BINARY_DIR}/bint${BIT}.o")
     target_compile_definitions(mcl    PUBLIC MCL_BINT_ASM_X64=0)
@@ -140,29 +137,24 @@ if(NOT (CMAKE_SYSTEM_PROCESSOR STREQUAL "AMD64") AND NOT (CMAKE_SYSTEM_PROCESSOR
     target_sources(mcl_st PRIVATE ${BINT_OBJ})
 
     # base${BIT}.ll → base${BIT}.o
-    if(MCL_USE_LLVM)
-        set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
-        target_compile_definitions(mcl    PUBLIC MCL_USE_LLVM=1)
-        target_compile_definitions(mcl_st PUBLIC MCL_USE_LLVM=1)
-
-        add_custom_command(OUTPUT ${BASE_OBJ}
-            COMMAND ${CMAKE_CXX_COMPILER}
-                    ${ANDROID_TARGET_FLAG}
-                    ${ANDROID_SYSROOT_FLAG}
-                    -fPIC
-                    -c -o ${BASE_OBJ}
-                    ${CMAKE_CURRENT_SOURCE_DIR}/src/base${BIT}.ll
-            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-        add_custom_target(gen_base.o SOURCES ${BASE_OBJ})
-        target_link_libraries(mcl     PUBLIC ${BASE_OBJ})
-        add_dependencies(mcl     gen_base.o)
-        target_link_libraries(mcl_st PUBLIC ${BASE_OBJ})
-        add_dependencies(mcl_st gen_base.o)
-        target_sources(mcl_st PRIVATE ${BASE_OBJ})
-    endif()
+    set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
+    add_custom_command(OUTPUT ${BASE_OBJ}
+        COMMAND ${CMAKE_CXX_COMPILER}
+                ${ANDROID_TARGET_FLAG}
+                ${ANDROID_SYSROOT_FLAG}
+                -fPIC
+                -c -o ${BASE_OBJ}
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/base${BIT}.ll
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+    add_custom_target(gen_base.o SOURCES ${BASE_OBJ})
+    target_link_libraries(mcl     PUBLIC ${BASE_OBJ})
+    add_dependencies(mcl     gen_base.o)
+    target_link_libraries(mcl_st PUBLIC ${BASE_OBJ})
+    add_dependencies(mcl_st gen_base.o)
+    target_sources(mcl_st PRIVATE ${BASE_OBJ})
 endif()
 
-# --- AVX512 MSM routines on x86_64 Linux ---
+# --- AVX512 MSM routines on native Linux only ---
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
     set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
 
