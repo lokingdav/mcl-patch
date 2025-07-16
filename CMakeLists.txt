@@ -32,7 +32,7 @@ option(MCL_USE_LLVM  "use base64.ll with -DCMAKE_CXX_COMPILER=clang++" ON)
 option(MCL_BUILD_SAMPLE  "Build mcl samples" OFF)
 option(MCL_BUILD_TESTING "Build mcl tests" OFF)
 
-# --- Bit-size suffix ---
+# --- Derive bit-size suffix ---
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
     set(BIT "64")
 else()
@@ -112,16 +112,14 @@ endif()
 
 # --- Bitcode backends (.ll → .o) ---
 if(MCL_USE_LLVM)
-    # Compile bint${BIT}.ll
+    # bint${BIT}.ll → bint${BIT}.o
     set(BINT_OBJ "${CMAKE_CURRENT_BINARY_DIR}/bint${BIT}.o")
     target_compile_definitions(mcl    PUBLIC MCL_BINT_ASM_X64=0)
     target_compile_definitions(mcl_st PUBLIC MCL_BINT_ASM_X64=0)
     add_custom_command(OUTPUT ${BINT_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
-                ${ANDROID_TARGET_FLAG}
-                ${ANDROID_SYSROOT_FLAG}
-                -fPIC
-                -c -o ${BINT_OBJ}
+                ${ANDROID_TARGET_FLAG} ${ANDROID_SYSROOT_FLAG}
+                -fPIC -c -o ${BINT_OBJ}
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/bint${BIT}.ll
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
     add_custom_target(gen_bint.o SOURCES ${BINT_OBJ})
@@ -130,14 +128,12 @@ if(MCL_USE_LLVM)
     target_link_libraries(mcl_st PUBLIC ${BINT_OBJ})
     add_dependencies(mcl_st gen_bint.o)
 
-    # Compile base${BIT}.ll
+    # base${BIT}.ll → base${BIT}.o
     set(BASE_OBJ "${CMAKE_CURRENT_BINARY_DIR}/base${BIT}.o")
     add_custom_command(OUTPUT ${BASE_OBJ}
         COMMAND ${CMAKE_CXX_COMPILER}
-                ${ANDROID_TARGET_FLAG}
-                ${ANDROID_SYSROOT_FLAG}
-                -fPIC
-                -c -o ${BASE_OBJ}
+                ${ANDROID_TARGET_FLAG} ${ANDROID_SYSROOT_FLAG}
+                -fPIC -c -o ${BASE_OBJ}
                 ${CMAKE_CURRENT_SOURCE_DIR}/src/base${BIT}.ll
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
     add_custom_target(gen_base.o SOURCES ${BASE_OBJ})
@@ -147,27 +143,31 @@ if(MCL_USE_LLVM)
     add_dependencies(mcl_st gen_base.o)
 endif()
 
-# --- AVX512 MSM routines (native Linux x86_64 only) ---
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
-    set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
-    add_custom_command(OUTPUT ${MSM_OBJ}
-        COMMAND ${CMAKE_CXX_COMPILER}
-                -c -o ${MSM_OBJ}
-                ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
-                ${MCL_COMPILE_OPTIONS}
-                -I ${CMAKE_CURRENT_SOURCE_DIR}/include
-                -mavx512f -mavx512ifma
-                -std=c++11 -fno-rtti
-                -DCYBOZU_DONT_USE_STRING
-                -DCYBOZU_DONT_USE_EXCEPTION
-                -DNDEBUG
-        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-    add_custom_target(msm_avx.o DEPENDS ${MSM_OBJ})
-    target_link_libraries(mcl     PUBLIC ${MSM_OBJ})
-    add_dependencies(mcl     msm_avx.o)
-    target_link_libraries(mcl_st PUBLIC ${MSM_OBJ})
-    add_dependencies(mcl_st msm_avx.o)
-endif()
+# --- AVX512 MSM routines (compile on any x86_64, including Android) ---
+set(MSM_OBJ "${CMAKE_CURRENT_BINARY_DIR}/msm_avx.o")
+add_custom_command(OUTPUT ${MSM_OBJ}
+    COMMAND ${CMAKE_CXX_COMPILER}
+            ${ANDROID_TARGET_FLAG} ${ANDROID_SYSROOT_FLAG}
+            -c -o ${MSM_OBJ}
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/msm_avx.cpp
+            ${MCL_COMPILE_OPTIONS}
+            -I ${CMAKE_CURRENT_SOURCE_DIR}/include
+            -mavx512f -mavx512ifma
+            -std=c++11 -fno-rtti
+            -DCYBOZU_DONT_USE_STRING
+            -DCYBOZU_DONT_USE_EXCEPTION
+            -DNDEBUG
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+add_custom_target(msm_avx.o DEPENDS ${MSM_OBJ})
+target_link_libraries(mcl     PUBLIC ${MSM_OBJ})
+add_dependencies(mcl     msm_avx.o)
+target_link_libraries(mcl_st PUBLIC ${MSM_OBJ})
+add_dependencies(mcl_st msm_avx.o)
+
+# --- Generic MSM fallback (initMsm, mulVec, mulEach, etc.) ---
+add_library(msm_fallback OBJECT src/msm_avx.cpp)
+target_link_libraries(mcl     PUBLIC $<TARGET_OBJECTS:msm_fallback>)
+target_link_libraries(mcl_st PUBLIC $<TARGET_OBJECTS:msm_fallback>)
 
 # --- Optional tests & samples ---
 if(MCL_BUILD_TESTING)
